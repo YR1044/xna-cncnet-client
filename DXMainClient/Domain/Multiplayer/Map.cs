@@ -14,6 +14,7 @@ using Color = Microsoft.Xna.Framework.Color;
 using Point = Microsoft.Xna.Framework.Point;
 using Utilities = Rampastring.Tools.Utilities;
 using static System.Collections.Specialized.BitVector32;
+using System.Diagnostics;
 
 namespace DTAClient.Domain.Multiplayer
 {
@@ -296,7 +297,7 @@ namespace DTAClient.Domain.Multiplayer
                 EnforceMaxPlayers = section.GetBooleanValue("EnforceMaxPlayers", false);
 
                 FileInfo mapFile = SafePath.GetFile(BaseFilePath);
-                PreviewPath = SafePath.CombineFilePath(SafePath.GetDirectory(mapFile.ToString()).Parent.ToString()[ProgramConstants.GamePath.Length..], FormattableString.Invariant($"{section.GetStringValue("PreviewImage", mapFile.Name)}.png"));
+                PreviewPath = SafePath.CombineFilePath(SafePath.GetDirectory(mapFile.FullName).Parent.FullName[ProgramConstants.GamePath.Length..], FormattableString.Invariant($"{section.GetStringValue("PreviewImage", mapFile.Name)}.png"));
 
                 Briefing = section.GetStringValue("Briefing", string.Empty)
                     .FromIniString()
@@ -394,6 +395,7 @@ namespace DTAClient.Domain.Multiplayer
                     if (string.IsNullOrEmpty(waypoint))
                         break;
 
+                    Debug.Assert(int.TryParse(waypoint, out _), $"waypoint should be a number, got {waypoint}");
                     waypoints.Add(waypoint);
                 }
 
@@ -428,7 +430,7 @@ namespace DTAClient.Domain.Multiplayer
             }
             catch (Exception ex)
             {
-                Logger.Log("Setting info for " + BaseFilePath + " failed! Reason: " + ex.Message);
+                Logger.Log("Setting info for " + BaseFilePath + " failed! Reason: " + ex.ToString());
                 PreStartup.LogException(ex);
                 return false;
             }
@@ -455,9 +457,9 @@ namespace DTAClient.Domain.Multiplayer
                         TeamStartMappings = TeamStartMapping.FromListString(teamStartMappingPreset)
                     });
                 }
-                catch (Exception e)
+                catch (Exception ex)
                 {
-                    Logger.Log($"Unable to parse team start mappings. Map: \"{Name}\", Error: {e.Message}");
+                    Logger.Log($"Unable to parse team start mappings. Map: \"{Name}\", Error: {ex.Message}");
                     TeamStartMappingPresets = new List<TeamStartMappingPreset>();
                 }
             }
@@ -677,6 +679,9 @@ namespace DTAClient.Domain.Multiplayer
                     forcedOptionsIni.GetStringValue(spawnIniOptionsSection, key, string.Empty)));
             }
         }
+
+        public bool IsPreviewTextureCached() =>
+            SafePath.GetFile(ProgramConstants.GamePath, PreviewPath).Exists;
 
         /// <summary>
         /// Loads and returns the map preview texture.

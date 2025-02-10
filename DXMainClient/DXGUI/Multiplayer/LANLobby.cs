@@ -25,6 +25,7 @@ using System.Threading;
 using SixLabors.ImageSharp;
 using Color = Microsoft.Xna.Framework.Color;
 using Rectangle = Microsoft.Xna.Framework.Rectangle;
+using DTAClient.DXGUI.Multiplayer.CnCNet;
 
 namespace DTAClient.DXGUI.Multiplayer
 {
@@ -94,6 +95,7 @@ namespace DTAClient.DXGUI.Multiplayer
         MapLoader mapLoader;
 
         DiscordHandler discordHandler;
+        PrivateMessagingWindow pmWindow;
 
         bool initSuccess = false;
 
@@ -237,7 +239,7 @@ namespace DTAClient.DXGUI.Multiplayer
             gameCreationPanel.SetPositionAndSize();
 
             lanGameLobby = new LANGameLobby(WindowManager, "MultiplayerGameLobby",
-                null, chatColors, mapLoader, discordHandler);
+                null, chatColors, mapLoader, discordHandler, pmWindow);
             DarkeningPanel.AddAndInitializeWithControl(WindowManager, lanGameLobby);
             lanGameLobby.Disable();
 
@@ -353,7 +355,7 @@ namespace DTAClient.DXGUI.Multiplayer
             }
             catch (SocketException ex)
             {
-                Logger.Log("Creating LAN socket failed! Message: " + ex.Message);
+                Logger.Log("Creating LAN socket failed! Message: " + ex.ToString());
                 lbChatMessages.AddMessage(new ChatMessage(Color.Red,
                     "Creating LAN socket failed! Message:".L10N("Client:Main:SocketFailure1") + " " + ex.Message));
                 lbChatMessages.AddMessage(new ChatMessage(Color.Red,
@@ -405,7 +407,7 @@ namespace DTAClient.DXGUI.Multiplayer
             }
             catch (Exception ex)
             {
-                Logger.Log("LAN socket listener: exception: " + ex.Message);
+                Logger.Log("LAN socket listener: exception: " + ex.ToString());
             }
         }
 
@@ -419,8 +421,7 @@ namespace DTAClient.DXGUI.Multiplayer
             string command = commandAndParams[0];
 
             string[] parameters = data.Substring(command.Length + 1).Split(
-                new char[] { ProgramConstants.LAN_DATA_SEPARATOR },
-                StringSplitOptions.RemoveEmptyEntries);
+                new char[] { ProgramConstants.LAN_DATA_SEPARATOR });
 
             LANLobbyUser user = players.Find(p => p.EndPoint.Equals(endPoint));
 

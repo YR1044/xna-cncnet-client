@@ -17,6 +17,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading;
+using DTAClient.DXGUI.Multiplayer.CnCNet;
 
 
 namespace DTAClient.DXGUI.Multiplayer.GameLobby
@@ -43,8 +44,8 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
         public const string PING = "PING";
 
         public LANGameLobby(WindowManager windowManager, string iniName,
-            TopBar topBar, LANColor[] chatColors, MapLoader mapLoader, DiscordHandler discordHandler) :
-            base(windowManager, iniName, topBar, mapLoader, discordHandler)
+            TopBar topBar, LANColor[] chatColors, MapLoader mapLoader, DiscordHandler discordHandler, PrivateMessagingWindow pmWindow) :
+            base(windowManager, iniName, topBar, mapLoader, discordHandler, pmWindow)
         {
             this.chatColors = chatColors;
             encoding = Encoding.UTF8;
@@ -90,8 +91,10 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
                 AddNotice(string.Format("{0} has modified game files! They could be cheating!".L10N("Client:Main:PlayerModifiedFiles"), sender));
 
             PlayerInfo pInfo = Players.Find(p => p.Name == sender);
+            if (pInfo == null)
+                return;
 
-            pInfo.Verified = true;
+            pInfo.HashReceived = true;
             CopyPlayerDataToUI();
         }
 
@@ -150,7 +153,7 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
                 this.client.GetStream().Flush();
 
                 var fhc = new FileHashCalculator();
-                fhc.CalculateHashes(GameModeMaps.GameModes);
+                fhc.CalculateHashes();
                 localFileHash = fhc.GetCompleteHash();
 
                 RefreshMapSelectionUI();
@@ -171,7 +174,7 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
         public void PostJoin()
         {
             var fhc = new FileHashCalculator();
-            fhc.CalculateHashes(GameModeMaps.GameModes);
+            fhc.CalculateHashes();
             SendMessageToHost(FILE_HASH_COMMAND + " " + fhc.GetCompleteHash());
             ResetAutoReadyCheckbox();
         }
@@ -193,7 +196,7 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
                 }
                 catch (Exception ex)
                 {
-                    Logger.Log("Listener error: " + ex.Message);
+                    Logger.Log("Listener error: " + ex.ToString());
                     break;
                 }
 
@@ -237,7 +240,7 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
                 }
                 catch (Exception ex)
                 {
-                    Logger.Log("Socket error with client " + lpInfo.IPAddress + "; removing. Message: " + ex.Message);
+                    Logger.Log("Socket error with client " + lpInfo.IPAddress + "; removing. Message: " + ex.ToString());
                     break;
                 }
 
@@ -365,7 +368,7 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
                 }
                 catch (Exception ex)
                 {
-                    Logger.Log("Reading data from the server failed! Message: " + ex.Message);
+                    Logger.Log("Reading data from the server failed! Message: " + ex.ToString());
                     BtnLeaveGame_LeftClick(this, EventArgs.Empty);
                     break;
                 }
@@ -424,6 +427,7 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
         {
             Clear();
             GameLeft?.Invoke(this, EventArgs.Empty);
+            PlayerExtraOptionsPanel?.Disable();
             Disable();
         }
 
@@ -493,7 +497,7 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
                 sb.Append(pInfo.ColorId);
                 sb.Append(pInfo.StartingLocation);
                 sb.Append(pInfo.TeamId);
-                if (pInfo.AutoReady && !pInfo.IsInGame)
+                if (pInfo.AutoReady && !pInfo.IsInGame && !LastMapChangeWasInvalid)
                     sb.Append(2);
                 else
                     sb.Append(Convert.ToInt32(pInfo.IsAI || pInfo.Ready));
@@ -565,8 +569,8 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
             }
 
             sb.Append(RandomSeed);
-            sb.Append(Map.SHA1);
-            sb.Append(GameMode.Name);
+            sb.Append(Map?.SHA1 ?? string.Empty);
+            sb.Append(GameMode?.Name ?? string.Empty);
             sb.Append(FrameSendRate);
             sb.Append(Convert.ToInt32(RemoveStartingLocations));
 
@@ -742,8 +746,8 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
             sb.Append(ProgramConstants.LAN_PROTOCOL_REVISION);
             sb.Append(ProgramConstants.GAME_VERSION);
             sb.Append(localGame);
-            sb.Append(Map.UntranslatedName);
-            sb.Append(GameMode.UntranslatedUIName);
+            sb.Append(Map?.UntranslatedName ?? string.Empty);
+            sb.Append(GameMode?.UntranslatedUIName ?? string.Empty);
             sb.Append(0); // LoadedGameID
             var sbPlayers = new StringBuilder();
             Players.ForEach(p => sbPlayers.Append(p.Name + ","));
@@ -830,6 +834,11 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
                 return;
 
             if (color < 0 || color > MPColors.Count)
+                return;
+
+            var disallowedSides = GetDisallowedSides();
+
+            if (side > 0 && side <= SideCount && disallowedSides[side - 1])
                 return;
 
             if (Map.CoopInfo != null)
@@ -942,6 +951,7 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
             }
 
             CopyPlayerDataToUI();
+
             localPlayer = FindLocalPlayer();
             if (localPlayer != null && oldSideId != localPlayer.SideId)
                 UpdateDiscordPresence();
@@ -990,9 +1000,11 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
 
             if (gameModeMap == null)
             {
-                AddNotice("The game host has selected a map that doesn't exist on your installation.".L10N("Client:Main:MapNotExist") +
-                    "The host needs to change the map or you won't be able to play.".L10N("Client:Main:HostNeedChangeMapForYou"));
                 ChangeMap(null);
+                if (!string.IsNullOrEmpty(mapSHA1))
+                    AddNotice("The game host has selected a map that doesn't exist on your installation.".L10N("Client:Main:MapNotExist") + " " +
+                        "The host needs to change the map or you won't be able to play.".L10N("Client:Main:HostNeedChangeMapForYou"));
+
                 return;
             }
 

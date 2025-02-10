@@ -52,8 +52,6 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
 
             LoadSettings();
 
-            CheckDisallowedSides();
-
             CopyPlayerDataToUI();
 
             ProgramConstants.PlayerNameChanged += ProgramConstants_PlayerNameChanged;
@@ -66,7 +64,7 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
         {
             base.ToggleFavoriteMap();
 
-            if (GameModeMap.IsFavorite)
+            if (GameModeMap != null && GameModeMap.IsFavorite)
                 return;
 
             RefreshForFavoriteMapRemoved();
@@ -181,10 +179,10 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
 
         protected override void BtnLeaveGame_LeftClick(object sender, EventArgs e)
         {
-            this.Enabled = false;
-            this.Visible = false;
-
             Exited?.Invoke(this, EventArgs.Empty);
+
+            PlayerExtraOptionsPanel?.Disable();
+            Disable();
 
             topBar.RemovePrimarySwitchable(this);
             ResetDiscordPresence();
@@ -296,7 +294,7 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
             }
             catch (Exception ex)
             {
-                Logger.Log("Saving skirmish settings failed! Reason: " + ex.Message);
+                Logger.Log("Saving skirmish settings failed! Reason: " + ex.ToString());
             }
         }
 
@@ -331,7 +329,7 @@ namespace DTAClient.DXGUI.Multiplayer.GameLobby
 
                 string mapSHA1 = skirmishSettingsIni.GetStringValue("Settings", "Map", string.Empty);
 
-                int gameModeMapIndex = gameModeMapFilter.GetGameModeMaps().FindIndex(gmm => gmm.Map.SHA1 == mapSHA1);
+                int gameModeMapIndex = GetSortedGameModeMaps().FindIndex(gmm => gmm.Map.SHA1 == mapSHA1);
 
                 if (gameModeMapIndex > -1)
                 {

@@ -88,7 +88,8 @@ public class Translation : ICloneable
     public Translation(IniFile ini, string localeCode)
         : this(localeCode)
     {
-        ArgumentNullException.ThrowIfNull(ini);
+        if (ini is null)
+            throw new ArgumentNullException(nameof(ini));
 
         IniSection metadataSection = ini.GetSection(METADATA_SECTION);
         Name = metadataSection?.GetStringValue(nameof(Name), string.Empty);
@@ -190,7 +191,7 @@ public class Translation : ICloneable
     /// <returns>Locale code -> display name pairs.</returns>
     public static Dictionary<string, string> GetTranslations()
     {
-        var translations = new Dictionary<string, string>
+        var translations = new Dictionary<string, string>(StringComparer.InvariantCultureIgnoreCase)
         {
             // Add default localization so that we always have it in the list even if the localization does not exist
             [ProgramConstants.HARDCODED_LOCALE_CODE] = GetLanguageName(ProgramConstants.HARDCODED_LOCALE_CODE)
@@ -223,6 +224,7 @@ public class Translation : ICloneable
         {
             string translation = culture.Name;
 
+            // the keys in 'translations' are case-insensitive
             if (translations.ContainsKey(translation))
                 return translation;
         }

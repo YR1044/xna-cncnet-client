@@ -73,6 +73,8 @@ namespace DTAClient.DXGUI.Generic
             else
                 mapEditorProcess.StartInfo.FileName = SafePath.CombineFilePath(ProgramConstants.GamePath, ClientConfiguration.Instance.UnixMapEditorExePath);
 
+            mapEditorProcess.StartInfo.UseShellExecute = false;
+
             mapEditorProcess.Start();
 
             Enabled = false;
@@ -80,7 +82,7 @@ namespace DTAClient.DXGUI.Generic
 
         private void BtnExCredits_LeftClick(object sender, EventArgs e)
         {
-            ProcessLauncher.StartShellProcess(MainClientConstants.CREDITS_URL);
+            ProcessLauncher.StartShellProcess(ClientConfiguration.Instance.CreditsURL);
         }
 
         private void BtnExCancel_LeftClick(object sender, EventArgs e)

@@ -19,6 +19,8 @@ using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using ClientCore.Settings;
 using Microsoft.Xna.Framework.Graphics;
+using DTAConfig;
+using System.Collections.Generic;
 
 namespace DTAClient
 {
@@ -49,7 +51,6 @@ namespace DTAClient
             Logger.Log("OSArchitecture: " + RuntimeInformation.OSArchitecture);
             Logger.Log("ProcessArchitecture: " + RuntimeInformation.ProcessArchitecture);
             Logger.Log("FrameworkDescription: " + RuntimeInformation.FrameworkDescription);
-            Logger.Log("RuntimeIdentifier: " + RuntimeInformation.RuntimeIdentifier);
             Logger.Log("Selected OS profile: " + MainClientConstants.OSId);
             Logger.Log("Current culture: " + CultureInfo.CurrentCulture);
 
@@ -61,7 +62,9 @@ namespace DTAClient
                 thread.Start();
             }
 
-            GenerateOnlineIdAsync();
+            // Using tasks here causes crashes on Wine for some reason
+            Thread onlineIdThread = new Thread(GenerateOnlineId);
+            onlineIdThread.Start();
 
 #if ARES
             Task.Factory.StartNew(() => PruneFiles(SafePath.GetDirectory(ProgramConstants.GamePath, "debug"), DateTime.Now.AddDays(-7)));
@@ -127,11 +130,31 @@ namespace DTAClient
 
             GameClass gameClass = new GameClass();
 
-            int currentWidth = GraphicsAdapter.DefaultAdapter.CurrentDisplayMode.Width;
-            int currentHeight = GraphicsAdapter.DefaultAdapter.CurrentDisplayMode.Height;
+            if (!UserINISettings.Instance.BorderlessWindowedClient)
+            {
+                // Find the largest recommended resolution as the default windowed resolution
+                List<ScreenResolution> recommendedResolutions = ClientConfiguration.Instance.RecommendedResolutions.Select(resolution => (ScreenResolution)resolution).ToList();
+                SortedSet<ScreenResolution> scaledRecommendedResolutions = [.. recommendedResolutions.SelectMany(resolution => resolution.GetIntegerScaledResolutions())];
+                var bestRecommendedResolution = scaledRecommendedResolutions.Max();
 
-            UserINISettings.Instance.ClientResolutionX = new IntSetting(UserINISettings.Instance.SettingsIni, UserINISettings.VIDEO, "ClientResolutionX", currentWidth);
-            UserINISettings.Instance.ClientResolutionY = new IntSetting(UserINISettings.Instance.SettingsIni, UserINISettings.VIDEO, "ClientResolutionY", currentHeight);
+                UserINISettings.Instance.ClientResolutionX = new IntSetting(UserINISettings.Instance.SettingsIni, UserINISettings.VIDEO, "ClientResolutionX", bestRecommendedResolution.Width);
+                UserINISettings.Instance.ClientResolutionY = new IntSetting(UserINISettings.Instance.SettingsIni, UserINISettings.VIDEO, "ClientResolutionY", bestRecommendedResolution.Height);
+            }
+            else
+            {
+                // Find the largest fullscreen resolution as the default fullscreen resolution
+                var resolution = ScreenResolution.SafeFullScreenResolution;
+                UserINISettings.Instance.ClientResolutionX = new IntSetting(UserINISettings.Instance.SettingsIni, UserINISettings.VIDEO, "ClientResolutionX", resolution.Width);
+                UserINISettings.Instance.ClientResolutionY = new IntSetting(UserINISettings.Instance.SettingsIni, UserINISettings.VIDEO, "ClientResolutionY", resolution.Height);
+            }
+
+#if DEBUG
+            // Calculate hashes
+            {
+                FileHashCalculator fhc = new();
+                fhc.CalculateHashes();
+            }
+#endif
 
             gameClass.Run();
         }
@@ -162,10 +185,10 @@ namespace DTAClient
                             if (fileInfo.CreationTime <= pruneThresholdTime)
                                 fileInfo.Delete();
                         }
-                        catch (Exception e)
+                        catch (Exception ex)
                         {
                             Logger.Log("PruneFiles: Could not delete file " + fsEntry.Name +
-                                ". Error message: " + e.Message);
+                                ". Error message: " + ex.ToString());
                             continue;
                         }
                     }
@@ -177,7 +200,7 @@ namespace DTAClient
             catch (Exception ex)
             {
                 Logger.Log("PruneFiles: An error occurred while pruning files from " +
-                   directory.Name + ". Message: " + ex.Message);
+                   directory.Name + ". Message: " + ex.ToString());
             }
         }
 #endif
@@ -233,7 +256,7 @@ namespace DTAClient
             {
                 Logger.Log("MigrateLogFiles: An error occured while moving log files from " +
                     currentDirectory.Name + " to " +
-                    newDirectory.Name + ". Message: " + ex.Message);
+                    newDirectory.Name + ". Message: " + ex.ToString());
             }
         }
 
@@ -308,7 +331,7 @@ namespace DTAClient
         /// <summary>
         /// Generate an ID for online play.
         /// </summary>
-        private static async Task GenerateOnlineIdAsync()
+        private static void GenerateOnlineId()
         {
 #if !WINFORMS
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
@@ -317,7 +340,6 @@ namespace DTAClient
 #pragma warning disable format
                 try
                 {
-                    await Task.CompletedTask;
                     ManagementObjectCollection mbsList = null;
                     ManagementObjectSearcher mbs = new ManagementObjectSearcher("Select * From Win32_processor");
                     mbsList = mbs.Get();
@@ -365,7 +387,7 @@ namespace DTAClient
             {
                 try
                 {
-                    string machineId = await File.ReadAllTextAsync("/var/lib/dbus/machine-id");
+                    string machineId = File.ReadAllText("/var/lib/dbus/machine-id");
 
                     Connection.SetId(machineId);
                 }

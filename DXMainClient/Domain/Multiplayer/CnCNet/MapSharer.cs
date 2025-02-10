@@ -36,7 +36,8 @@ namespace DTAClient.Domain.Multiplayer.CnCNet
 
         private static readonly object locker = new object();
 
-        private const string MAPDB_URL = "http://mapdb.cncnet.org/upload";
+        private const int DOWNLOAD_TIMEOUT = 100000; // In milliseconds
+        private const int UPLOAD_TIMEOUT = 100000; // In milliseconds
 
         /// <summary>
         /// Adds a map into the CnCNet map upload queue.
@@ -78,8 +79,14 @@ namespace DTAClient.Domain.Multiplayer.CnCNet
 
             Logger.Log("MapSharer: Starting upload of " + map.BaseFilePath);
 
-            bool success = false;
-            string message = MapUpload(MAPDB_URL, map, myGameId, out success);
+            if (string.IsNullOrWhiteSpace(ClientConfiguration.Instance.CnCNetMapDBUploadURL))
+            {
+                Logger.Log("MapSharer: Upload URL is not configured.");
+                MapUploadFailed?.Invoke(null, new MapEventArgs(map));
+                return;
+            }
+
+            string message = MapUpload(ClientConfiguration.Instance.CnCNetMapDBUploadURL, map, myGameId, out bool success);
 
             if (success)
             {
@@ -207,6 +214,7 @@ namespace DTAClient.Domain.Multiplayer.CnCNet
         private static byte[] UploadFiles(string address, List<FileToUpload> files, NameValueCollection values)
         {
             WebRequest request = WebRequest.Create(address);
+            request.Timeout = UPLOAD_TIMEOUT;
             request.Method = "POST";
             string boundary = "---------------------------" + DateTime.Now.Ticks.ToString("x", NumberFormatInfo.InvariantInfo);
             request.ContentType = "multipart/form-data; boundary=" + boundary;
@@ -326,7 +334,7 @@ namespace DTAClient.Domain.Multiplayer.CnCNet
             }
             catch (Exception ex)
             {
-                Logger.Log("MapSharer: ERROR " + ex.Message);
+                Logger.Log("MapSharer: ERROR " + ex.ToString());
             }
 
             string mapPath = DownloadMain(sha1, myGameId, mapName, out success);
@@ -378,14 +386,21 @@ namespace DTAClient.Domain.Multiplayer.CnCNet
             destinationFile.Delete();
             newFile.Delete();
 
-            using (TWebClient webClient = new TWebClient())
+            using (WebClient webClient = new ExtendedWebClient(DOWNLOAD_TIMEOUT))
             {
-                webClient.Proxy = null;
+                if (string.IsNullOrWhiteSpace(ClientConfiguration.Instance.CnCNetMapDBDownloadURL))
+                {
+                    success = false;
+                    Logger.Log("MapSharer: Download URL is not configured.");
+                    return null;
+                }
+
+                string url = string.Format(CultureInfo.InvariantCulture, "{0}/{1}/{2}.zip", ClientConfiguration.Instance.CnCNetMapDBDownloadURL, myGame, sha1);
 
                 try
                 {
-                    Logger.Log("MapSharer: Downloading URL: " + "http://mapdb.cncnet.org/" + myGame + "/" + sha1 + ".zip");
-                    webClient.DownloadFile("http://mapdb.cncnet.org/" + myGame + "/" + sha1 + ".zip", destinationFile.FullName);
+                    Logger.Log($"MapSharer: Downloading URL: {url}");
+                    webClient.DownloadFile(url, destinationFile.FullName);
                 }
                 catch (Exception ex)
                 {
@@ -441,23 +456,6 @@ namespace DTAClient.Domain.Multiplayer.CnCNet
             public string Filename { get; set; }
             public string ContentType { get; set; }
             public Stream Stream { get; set; }
-        }
-
-        class TWebClient : WebClient
-        {
-            private int Timeout = 10000;
-
-            public TWebClient()
-            {
-                this.Proxy = null;
-            }
-
-            protected override WebRequest GetWebRequest(Uri address)
-            {
-                var webRequest = base.GetWebRequest(address);
-                webRequest.Timeout = Timeout;
-                return webRequest;
-            }
         }
     }
 }
